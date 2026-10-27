@@ -6,13 +6,14 @@
 
 ## 기술 스택 (변경 금지)
 - HTML + CSS + 순수 JavaScript만 사용한다. (React 등 프레임워크, 빌드 도구 사용 금지)
-- index.html 을 더블클릭해서 열 수 있어야 한다.
+- JSON 일정 로딩은 배포 주소(HTTP/HTTPS)에서 실행한다. index.html을 더블클릭해 JSON을 읽지 못하면 '배포주소로열어주세요'를 화면에 표시한다.
 
 ## 폴더 구조
 - index.html : 화면 구조
 - style.css  : 디자인
 - logic.js   : 판단 규칙만 (화면을 다루는 코드 금지)
 - app.js     : 화면 동작 (목록 그리기, 일정 추가)
+- data/tasks.json : 기본 가상 일정 목록의 원본
 - PRD.md · CLAUDE.md · README.md : 문서
 
 ## 작업 방식
@@ -24,3 +25,7 @@
 - 가상 데이터만 사용한다. 실제 이름 · 연락처 · 기관 내부 자료를 넣지 않는다.
 - 사용자가 입력한 글자는 textContent 로 표시한다.
 - 비밀 키는 코드 · 채팅 · GitHub 에 넣지 않는다.
+- 기본 일정은 data/tasks.json에만 두고 app.js에 중복해서 넣지 않는다.
+- app.js는 JSON을 먼저 읽고, 그 다음 브라우저 저장의 추가 일정을 읽어 기본 일정 뒤에 합친다.
+- 브라우저 저장(wx_added)에는 화면에서 추가한 일정만 저장한다. 기본 JSON 일정이나 합친 전체 목록은 저장하지 않는다.
+- 화면에서 일정을 추가해도 data/tasks.json을 변경하지 않는다.
