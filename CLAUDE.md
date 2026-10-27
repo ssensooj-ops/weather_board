@@ -6,14 +6,17 @@
 
 ## 기술 스택 (변경 금지)
 - HTML + CSS + 순수 JavaScript만 사용한다. (React 등 프레임워크, 빌드 도구 사용 금지)
-- JSON 일정 로딩은 배포 주소(HTTP/HTTPS)에서 실행한다. index.html을 더블클릭해 JSON을 읽지 못하면 '배포주소로열어주세요'를 화면에 표시한다.
+- Supabase 연결 정보를 config.js에 설정하고 배포 주소(HTTP/HTTPS)에서 실행한다.
+- 외부 스크립트는 supabase-js 하나만 사용한다.
 
 ## 폴더 구조
 - index.html : 화면 구조
 - style.css  : 디자인
 - logic.js   : 판단 규칙만 (화면을 다루는 코드 금지)
 - app.js     : 화면 동작 (목록 그리기, 일정 추가)
-- data/tasks.json : 기본 가상 일정 목록의 원본
+- data/tasks.json : 이전 JSON 단원의 가상 데이터 예제 (실행 중 읽지 않음)
+- config.js : Supabase 주소와 공개용 키, 두 줄만 유지
+- setup.sql : 사용자가 SQL Editor에서 실행할 테이블·제약·권한·초기 가상 데이터
 - PRD.md · CLAUDE.md · README.md : 문서
 
 ## 작업 방식
@@ -25,7 +28,10 @@
 - 가상 데이터만 사용한다. 실제 이름 · 연락처 · 기관 내부 자료를 넣지 않는다.
 - 사용자가 입력한 글자는 textContent 로 표시한다.
 - 비밀 키는 코드 · 채팅 · GitHub 에 넣지 않는다.
-- 기본 일정은 data/tasks.json에만 두고 app.js에 중복해서 넣지 않는다.
-- app.js는 JSON을 먼저 읽고, 그 다음 브라우저 저장의 추가 일정을 읽어 기본 일정 뒤에 합친다.
-- 브라우저 저장(wx_added)에는 화면에서 추가한 일정만 저장한다. 기본 JSON 일정이나 합친 전체 목록은 저장하지 않는다.
-- 화면에서 일정을 추가해도 data/tasks.json을 변경하지 않는다.
+- 일정의 원본은 Supabase public.wx_tasks이며, 목록 조회와 일정 추가 모두 이 테이블을 사용한다.
+- JSON이나 브라우저 저장(wx_added)을 일정의 대체 저장소로 읽거나 쓰지 않는다. 이전 브라우저 일정을 자동 업로드하지 않는다.
+- 연결 정보는 config.js의 주소·공개용 키 두 줄에만 둔다. publishable 또는 anon 키만 사용하며 secret/service_role 키는 금지한다.
+- RLS를 활성화하고 공개 사용자는 조회·추가만 허용한다. 수정·삭제 권한은 부여하지 않는다.
+- 지역(세종·대전·태안·보령)과 구분(야외·고소·실내)은 DB CHECK 제약으로도 제한한다.
+- 저장 성공이 확인된 일정만 화면에 추가한다. 실패 시 입력을 유지하고 안내한다.
+- setup.sql은 사용자가 직접 실행하며, 앱이 테이블을 생성하거나 DB 제약·권한을 변경하지 않는다.

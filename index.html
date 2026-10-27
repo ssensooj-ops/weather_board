@@ -24,6 +24,7 @@
       <thead><tr><th>일정</th><th>지역</th><th>구분</th><th>담당</th><th>날씨</th><th>판단</th></tr></thead>
       <tbody id="taskList"></tbody>
     </table>
+    <button id="saveMarkdown" type="button" disabled>오늘판단md로저장</button>
   </section>
 
   <section class="card">
@@ -35,9 +36,11 @@
       <input id="ownerInput" placeholder="담당" required>
       <button>추가</button>
     </form>
-    <p id="msgBox"></p>
+    <p id="msgBox" role="status"></p>
   </section>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="logic.js"></script>
   <script src="app.js"></script>
 </body>

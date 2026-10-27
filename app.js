@@ -1,8 +1,9 @@
 // app.js – 화면 동작 (목록 그리기, 일정 추가)
 
-let baseTasks = [];
-let addedTasks = [];
 let tasks = [];
+let taskClient = null;
+let savingTask = false;
+const TASK_COLUMNS = 'id,title,region,kind,owner';
 const weatherByRegion = {};
 const windTest = new URLSearchParams(window.location.search).get('test') === 'wind';
 
@@ -54,39 +55,57 @@ function isTaskList(value) {
 async function loadTasks() {
   const message = document.getElementById('msgBox');
   const button = document.querySelector('#taskForm button');
-  const notices = [];
   button.disabled = true;
   message.textContent = '일정 불러오는 중';
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch('./data/tasks.json', { signal: controller.signal });
-    if (!response.ok) throw new Error('일정 요청 실패');
-    const data = await response.json();
+    if (!taskClient) taskClient = createTaskClient();
+    const { data, error } = await taskClient.from('wx_tasks').select(TASK_COLUMNS).order('id');
+    if (error) throw error;
     if (!isTaskList(data)) throw new Error('일정 형식 오류');
-    baseTasks = data;
+    tasks = data;
+    renderTasks();
+    message.textContent = '';
+    button.disabled = false;
   } catch (error) {
-    baseTasks = [];
-    notices.push(window.location.protocol === 'file:'
-      ? '배포주소로열어주세요'
-      : '기본 일정을 불러오지 못했습니다. 새로고침해 다시 시도해 주세요.');
-  } finally {
-    clearTimeout(timeout);
+    message.textContent = error.configuration
+      ? error.message
+      : error.code === 'PGRST205' || error.code === '42P01'
+        ? 'wx_tasks 테이블을 찾지 못했습니다. Supabase SQL Editor에서 setup.sql을 실행한 뒤 새로고침해 주세요.'
+        : 'Supabase에서 일정을 불러오지 못했습니다. 연결 설정과 setup.sql 실행 여부를 확인하고 새로고침해 주세요.';
   }
+}
 
-  // 기본 JSON을 읽은 다음, 화면에서 추가한 일정만 브라우저 저장에서 읽는다.
-  try {
-    const saved = JSON.parse(localStorage.getItem('wx_added') || '[]');
-    if (!isTaskList(saved)) throw new Error('저장된 일정 형식 오류');
-    addedTasks = saved;
-  } catch (error) {
-    addedTasks = [];
-    notices.push('브라우저에 저장된 추가 일정을 읽지 못했습니다.');
+function createTaskClient() {
+  function configurationError(message) {
+    const error = new Error(message);
+    error.configuration = true;
+    return error;
   }
-  tasks = baseTasks.concat(addedTasks);
-  renderTasks();
-  message.textContent = notices.join(' ');
-  button.disabled = false;
+  if (typeof SUPABASE_URL !== 'string' || !SUPABASE_URL
+      || typeof SUPABASE_PUBLIC_KEY !== 'string' || !SUPABASE_PUBLIC_KEY) {
+    throw configurationError('config.js에 Supabase 주소와 공개용 키를 입력해 주세요.');
+  }
+  let publicKey = SUPABASE_PUBLIC_KEY.startsWith('sb_publishable_');
+  if (!publicKey) {
+    try {
+      const payload = SUPABASE_PUBLIC_KEY.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      publicKey = JSON.parse(atob(payload)).role === 'anon';
+    } catch (error) {
+      publicKey = false;
+    }
+  }
+  if (!publicKey) throw configurationError('publishable 또는 anon 공개용 키만 사용해 주세요. 비밀 키는 사용할 수 없습니다.');
+  try {
+    if (new URL(SUPABASE_URL).protocol !== 'https:') throw new Error('HTTPS 주소 필요');
+  } catch (error) {
+    throw configurationError('config.js의 Supabase HTTPS 주소를 확인해 주세요.');
+  }
+  if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+    throw configurationError('Supabase 스크립트를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해 주세요.');
+  }
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
 }
 
 function weatherText(w) {
@@ -111,10 +130,28 @@ function renderTasks() {
     tr.appendChild(td);
     body.appendChild(tr);
   }
+  document.getElementById('saveMarkdown').disabled = tasks.length === 0;
 }
 
-function addTask(e) {
+function downloadJudgmentMarkdown() {
+  const rows = [...document.querySelectorAll('#taskList tr')]
+    .map((row) => [...row.cells].map((cell) => cell.textContent));
+  const date = todayDate.dateTime;
+  const markdown = buildJudgmentMarkdown(rows, date);
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = '현장일정_판단_' + date + '.md';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function addTask(e) {
   e.preventDefault();
+  if (!taskClient || savingTask || document.querySelector('#taskForm button').disabled) return;
   const t = {
     title: document.getElementById('titleInput').value.trim(),
     region: document.getElementById('regionInput').value,
@@ -122,17 +159,26 @@ function addTask(e) {
     owner: document.getElementById('ownerInput').value.trim(),
   };
   if (!t.title || !t.owner) return;
-  const nextAdded = addedTasks.concat(t);
+  if (!isTaskList([t])) return;
+  const button = document.querySelector('#taskForm button');
+  const message = document.getElementById('msgBox');
+  savingTask = true;
+  button.disabled = true;
+  message.textContent = '일정 저장 중';
   try {
-    localStorage.setItem('wx_added', JSON.stringify(nextAdded));
+    const { data, error } = await taskClient.from('wx_tasks').insert(t).select(TASK_COLUMNS).single();
+    if (error) throw error;
+    if (!isTaskList([data])) throw new Error('저장 응답 오류');
+    tasks.push(data);
+    e.target.reset();
+    renderTasks();
+    message.textContent = 'Supabase에 일정을 저장했습니다.';
   } catch (error) {
-    document.getElementById('msgBox').textContent = '일정을 저장하지 못했습니다. 브라우저 저장 설정을 확인해 주세요.';
-    return;
+    message.textContent = '저장을 확인하지 못했습니다. 새로고침해 목록을 확인한 뒤 다시 시도해 주세요.';
+  } finally {
+    savingTask = false;
+    button.disabled = false;
   }
-  addedTasks = nextAdded;
-  tasks = baseTasks.concat(addedTasks);
-  e.target.reset();
-  renderTasks();
 }
 
 const todayText = getTodayDate();
@@ -141,6 +187,7 @@ todayDate.textContent = todayText;
 todayDate.dateTime = todayText;
 
 document.getElementById('taskForm').addEventListener('submit', addTask);
+document.getElementById('saveMarkdown').addEventListener('click', downloadJudgmentMarkdown);
 loadTasks();
 renderTasks();
 loadWeather();
