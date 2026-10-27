@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/kma.js": {
+      "includeFiles": "config.js",
+      "maxDuration": 60
+    }
+  }
+}

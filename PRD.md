@@ -16,6 +16,7 @@
 | F-04 | 지역별 오늘 날씨(최고 기온 · 최대 풍속 · 강수확률)를 받아 일정마다 판단 표시 | 03 API |
 | F-05 | 일정 목록을 data/tasks.json 으로 분리, 오늘 판단을 md 파일로 저장 | 04 데이터 형식 |
 | F-06 | 일정 목록을 Supabase 표(wx_tasks)에 저장해 여러 사람이 같이 봄 | 04 DB |
+| F-07 | `/api/kma?region=대전` 호출로 DB 일정·기상청 오늘 날씨·일정별 판단을 JSON으로 조회 | 05 서버 API |
 
 ## 4. 데이터 (가상)
 - 일정 칸 : 일정 이름(title) · 지역(region) · 구분(kind) · 담당(owner)
@@ -50,3 +51,42 @@
 - [ ] T-02 일정을 추가하면 목록 맨 아래에 바로 보이고, 새로고침해도 남는다
 - [ ] T-03 날씨 칸에 지역마다 다른 숫자가 보인다 (03 단원)
 - [ ] T-04 주소 끝에 ?test=wind 를 붙이면 고소 일정 2건이 '중지 검토'로 바뀐다 (03 단원)
+- [ ] T-05 배포 주소의 `/api/kma?region=대전`을 GET으로 호출하면 DB의 대전 일정만 나온다
+- [ ] T-06 API 결과에 한국 날짜와 오늘 최고 기온(℃)·최대 풍속(m/s)·최대 강수확률(%) 및 R-01~R-05 판단이 나온다
+- [ ] T-07 날씨 실패 시에도 DB 일정과 '날씨 확인 전'(실내는 '영향 없음')이 나오고 warnings에 사유가 표시된다
+- [ ] T-08 미지원·누락·중복 지역은 400, GET 외 요청은 405, DB 조회 실패는 502, DB 설정 누락은 503을 반환한다
+- [ ] T-09 KMA_KEY는 서버 환경변수로만 읽고 API 응답·브라우저 코드·로그에 노출하지 않는다
+
+## 8. 지역별 일정·날씨·판단 API (F-07)
+- 요청: `GET /api/kma?region=대전`. region은 세종·대전·태안·보령 중 한 곳이며 필수다.
+- 일정 원본: Supabase `public.wx_tasks`. 해당 지역만 id 오름차순으로 읽는다. 이 API는 DB를 변경하지 않는다.
+- 날씨 원본: 기상청 API허브 `getVilageFcst`. Vercel 환경변수 `KMA_KEY`(API허브 발급 키)를 서버에서만 사용한다.
+- Supabase 주소·공개용 키는 기존 `config.js` 두 줄을 재사용하며, service_role/secret 키를 사용하지 않는다.
+- 날짜는 Asia/Seoul 기준이다. 하루 전체(00~23시)를 포함하는 전날 23시 발표본에서 오늘 TMX, WSD 최댓값, POP 최댓값을 사용한다. 최신 발표본의 남은 시간만으로 하루 최대값을 계산하지 않는다.
+- TMX 누락, WSD·POP의 24시간 예보 누락, 잘못된 수치는 날씨 실패로 처리한다. 날씨를 DB에 저장하거나 임의의 값으로 대체하지 않는다.
+- 정상 및 날씨 부분 실패는 HTTP 200이며 `status`가 각각 `ok`, `partial`이다. 일정이 없는 지역은 빈 tasks 배열이다.
+- 응답: `region`, `date`, `weather`, `forecast`(출처·발표일시·단위), `warnings`, `tasks`. 각 일정에는 기존 일정 필드와 `weather`, `judgment: { level, text }`가 포함된다.
+- 날씨 실패 시 weather·forecast는 null, warnings에는 공개 가능한 오류 안내만 넣는다. 외부 서비스의 원본 오류·인증키가 든 요청 URL을 반환하지 않는다.
+- 기존 웹 화면의 Open-Meteo 조회·일정 추가·MD 다운로드는 유지한다. 이 기능은 별도 서버 API다.
+
+응답 예시(가상 수치):
+```json
+{
+  "status": "ok",
+  "region": "대전",
+  "date": "2026-10-27",
+  "weather": { "tempMax": 24, "windMax": 12, "rainProb": 70 },
+  "forecast": {
+    "baseDate": "20261026",
+    "baseTime": "2300",
+    "source": "기상청 API허브 단기예보",
+    "units": { "tempMax": "℃", "windMax": "m/s", "rainProb": "%" }
+  },
+  "warnings": [],
+  "tasks": [{
+    "id": 4, "title": "하천 수위계 확인", "region": "대전", "kind": "야외", "owner": "최현장",
+    "weather": { "tempMax": 24, "windMax": 12, "rainProb": 70 },
+    "judgment": { "level": "warn", "text": "우천 주의" }
+  }]
+}
+```

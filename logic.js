@@ -7,6 +7,64 @@ const REGIONS = {
   '보령': { latitude: 36.33, longitude: 126.61 },
 };
 
+// 각 지역 대표 지점의 기상청 단기예보 격자.
+const KMA_GRIDS = {
+  '세종': { nx: 66, ny: 103 },
+  '대전': { nx: 67, ny: 100 },
+  '태안': { nx: 48, ny: 109 },
+  '보령': { nx: 54, ny: 100 },
+};
+
+function getKmaForecastQuery(region, now = new Date()) {
+  if (!Object.hasOwn(KMA_GRIDS, region)) throw new Error('지원하지 않는 지역입니다.');
+  // 오늘 00~23시 전체를 포함하는 전날 23시 발표본을 사용한다.
+  const date = getTodayDate(now);
+  const previousDay = new Date(date + 'T00:00:00+09:00');
+  previousDay.setTime(previousDay.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    date,
+    params: {
+      pageNo: '1', numOfRows: '1000', dataType: 'JSON',
+      base_date: getTodayDate(previousDay).replace(/-/g, ''),
+      base_time: '2300',
+      ...KMA_GRIDS[region],
+    },
+  };
+}
+
+function parseKmaWeather(data, date) {
+  const response = data && data.response;
+  if (response?.header?.resultCode !== '00') throw new Error('기상청 응답 오류');
+  const items = response.body?.items?.item;
+  if (!Array.isArray(items)) throw new Error('기상청 예보 없음');
+  const today = date.replace(/-/g, '');
+  const byCategory = { TMX: [], WSD: [], POP: [] };
+  const times = { WSD: new Set(), POP: new Set() };
+  for (const item of items) {
+    if (String(item.fcstDate) !== today || !Object.hasOwn(byCategory, item.category)) continue;
+    if (item.fcstValue === null || item.fcstValue === undefined || String(item.fcstValue).trim() === '') {
+      throw new Error('기상청 예보 값 누락');
+    }
+    const value = Number(item.fcstValue);
+    if (!Number.isFinite(value) || value <= -900
+        || (item.category === 'WSD' && value < 0)
+        || (item.category === 'POP' && (value < 0 || value > 100))) {
+      throw new Error('기상청 예보 값 오류');
+    }
+    byCategory[item.category].push(value);
+    if (times[item.category]) times[item.category].add(String(item.fcstTime));
+  }
+  const hours = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0') + '00');
+  if (!byCategory.TMX.length || !hours.every((hour) => times.WSD.has(hour) && times.POP.has(hour))) {
+    throw new Error('오늘 하루의 예보가 불완전합니다.');
+  }
+  return {
+    tempMax: Math.max(...byCategory.TMX),
+    windMax: Math.max(...byCategory.WSD),
+    rainProb: Math.max(...byCategory.POP),
+  };
+}
+
 function getTodayDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -78,5 +136,6 @@ function buildJudgmentMarkdown(rows, date = getTodayDate()) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { REGIONS, getTodayDate, buildWeatherUrl, parseWeather, RULES, judge, buildJudgmentMarkdown };
+  module.exports = { REGIONS, KMA_GRIDS, getTodayDate, getKmaForecastQuery, parseKmaWeather,
+    buildWeatherUrl, parseWeather, RULES, judge, buildJudgmentMarkdown };
 }

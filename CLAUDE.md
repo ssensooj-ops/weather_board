@@ -8,6 +8,7 @@
 - HTML + CSS + 순수 JavaScript만 사용한다. (React 등 프레임워크, 빌드 도구 사용 금지)
 - Supabase 연결 정보를 config.js에 설정하고 배포 주소(HTTP/HTTPS)에서 실행한다.
 - 외부 스크립트는 supabase-js 하나만 사용한다.
+- 서버 API는 Vercel Node.js 함수로 작성하고, 외부 패키지 없이 기본 fetch와 기존 판단 함수를 사용한다.
 
 ## 폴더 구조
 - index.html : 화면 구조
@@ -16,6 +17,8 @@
 - app.js     : 화면 동작 (목록 그리기, 일정 추가)
 - data/tasks.json : 이전 JSON 단원의 가상 데이터 예제 (실행 중 읽지 않음)
 - config.js : Supabase 주소와 공개용 키, 두 줄만 유지
+- api/kma.js · server/ : 지역별 DB 일정·기상청 날씨·판단 JSON API
+- vercel.json : 서버 함수에 공개 설정 파일 포함 및 실행 시간 설정
 - setup.sql : 사용자가 SQL Editor에서 실행할 테이블·제약·권한·초기 가상 데이터
 - PRD.md · CLAUDE.md · README.md : 문서
 
@@ -35,3 +38,6 @@
 - 지역(세종·대전·태안·보령)과 구분(야외·고소·실내)은 DB CHECK 제약으로도 제한한다.
 - 저장 성공이 확인된 일정만 화면에 추가한다. 실패 시 입력을 유지하고 안내한다.
 - setup.sql은 사용자가 직접 실행하며, 앱이 테이블을 생성하거나 DB 제약·권한을 변경하지 않는다.
+- KMA_KEY는 Vercel 서버 환경변수로만 읽는다. config.js·브라우저 코드·응답·로그에 키나 인증키가 포함된 URL을 넣지 않는다.
+- `/api/kma`는 DB의 요청 지역 일정만 조회하며 DB를 변경하지 않는다. 기상청 API허브를 호출하고 기존 judge 함수로 판단한다.
+- 날씨를 받지 못해도 DB 일정을 반환한다. 없는 날씨를 0이나 임의 수치로 대체하지 않는다.
